@@ -10,8 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"io/ioutil"
+	"encoding/json"
 
 	"github.com/droundy/goopt"
+	"github.com/garyburd/redigo/redis"
 )
 
 var (
@@ -24,6 +27,13 @@ var (
 	oneYear         = time.Duration(8700) * time.Hour
 
 	staticPath, _ = resourcePaths()
+
+	redisAddress = "localhost:6379"
+	redisExpireTime = "3600"
+	redisVerField = "version"
+	redisDayDownField = "ddownloads"
+	redisWeekDownField = "wdownloads"
+	redisMonDownField = "mdownloads"
 )
 
 func shift(s []string) ([]string, string) {
@@ -81,15 +91,155 @@ func parseFileName(name string) (d Data, err error) {
 	return
 }
 
+func queryPypi(project string, query string) (value string, err error) {
+	conn, err := redis.Dial("tcp", redisAddress)
+	if err != nil {
+		return
+	}
+
+	value, e := redis.String(conn.Do("HGET", project, query))
+	if e != nil {
+		resp, e := http.Get(
+			"http://pypi.python.org/pypi/" + project + "/json")
+		if e != nil {
+			return value, e
+		}
+		defer resp.Body.Close()
+		body, e := ioutil.ReadAll(resp.Body)
+		var data interface{}
+		json.Unmarshal(body, &data)
+		dataMap := data.(map[string]interface{})
+		infoMap := dataMap["info"].(map[string]interface{})
+		downloadsMap := infoMap["downloads"].(map[string]interface{})
+		version := infoMap["version"].(string)
+		downloadsDay := strconv.Itoa(int(downloadsMap["last_day"].(float64)))
+		downloadsWeek := strconv.Itoa(int(downloadsMap["last_week"].(float64)))
+		downloadsMon := strconv.Itoa(int(downloadsMap["last_month"].(float64)))
+
+		conn.Send("MULTI")
+		conn.Send("HSET", project, redisVerField, version)
+		conn.Send("HSET", project, redisDayDownField, downloadsDay)
+		conn.Send("HSET", project, redisWeekDownField, downloadsWeek)
+		conn.Send("HSET", project, redisMonDownField, downloadsMon)
+		conn.Send("EXPIRE", project, redisExpireTime)
+		_, e = conn.Do("EXEC")
+		if e != nil {
+			return value, e
+		}
+
+		switch query {
+		case redisVerField:
+			value = version
+		case redisDayDownField:
+			value = downloadsDay
+		case redisWeekDownField:
+			value = downloadsWeek
+		case redisMonDownField:
+			value = downloadsMon
+		}
+	}
+
+	conn.Close()
+	return
+}
+
+func parseFileNamePypi(name string) (d Data, err error) {
+	imageName := wsReplacer.Replace(name)
+	imageParts := strings.Split(imageName, "-")
+
+	newParts := []string{}
+	for len(imageParts) > 0 {
+		var head, right string
+		imageParts, head = shift(imageParts)
+
+		// if starts with - append to previous
+		if len(head) == 0 && len(newParts) > 0 {
+			left := ""
+			if len(newParts) > 0 {
+				left = newParts[len(newParts)-1]
+				newParts = newParts[:len(newParts)-1]
+			}
+
+			// trailing -- is going to break color anyways so don't worry
+			imageParts, right = shift(imageParts)
+
+			head = strings.Join([]string{left, right}, "-")
+		}
+
+		newParts = append(newParts, head)
+	}
+
+	if len(newParts) != 3 {
+		err = errors.New("Invalid file name")
+		return
+	}
+
+	if !strings.HasSuffix(newParts[2], ".png") {
+		err = errors.New("Unknown file type")
+		return
+	}
+
+	cp := newParts[2][0 : len(newParts[2])-4]
+	c, err := getColor(cp)
+	if err != nil {
+		return
+	}
+
+	var query string
+	switch newParts[1] {
+	case "ver":
+		query = redisVerField
+	case "ddl":
+		query = redisDayDownField
+	case "wdl":
+		query = redisWeekDownField
+	case "mdl":
+		query = redisMonDownField
+	default:
+		err = errors.New("Unknown pypi query")
+		return
+	}
+
+	value, err := queryPypi(newParts[0], query)
+	if err != nil {
+		return
+	}
+
+	var key string
+	if query == redisVerField {
+		key = "version"
+	} else {
+		key = "downloads"
+		switch query {
+		case redisDayDownField:
+			value += " today"
+		case redisWeekDownField:
+			value += " this week"
+		case redisMonDownField:
+			value += " this month"
+		}
+	}
+
+	d = Data{key, value, c}
+	return
+}
+
 func buckle(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
 
-	if len(parts) != 3 {
+	parts_len := len(parts)
+	if parts_len < 3 || parts_len > 4 {
 		invalidRequest(w, r)
 		return
 	}
 
-	d, err := parseFileName(parts[2])
+	var d Data
+	var err error
+	if parts[2] == "pypi" {
+		d, err = parseFileNamePypi(parts[3])
+	} else {
+		d, err = parseFileName(parts[2])
+	}
 	if err != nil {
 		invalidRequest(w, r)
 		return
@@ -210,7 +360,14 @@ func main() {
 	vendor := goopt.String([]string{"-v", "--vendor"}, "", "vendor for cli generation")
 	status := goopt.String([]string{"-s", "--status"}, "", "status for cli generation")
 	color := goopt.String([]string{"-c", "--color", "--colour"}, "", "color for cli generation")
+
+	// redis options
+	redisAddressOpt := goopt.String([]string{"-r", "--redis"}, redisAddress, "redis server address")
+	redisExpireTimeOpt := goopt.String([]string{"-e", "--expire"}, redisExpireTime, "redis key expire time in seconds")
 	goopt.Parse(nil)
+
+	redisAddress = *redisAddressOpt
+	redisExpireTime = *redisExpireTimeOpt
 
 	args := goopt.Args
 
