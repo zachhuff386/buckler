@@ -219,6 +219,7 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 			return
 		}
 
+		key = "build"
 		if value == "passing" {
 			color = colors[0]
 		} else {
