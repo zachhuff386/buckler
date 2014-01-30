@@ -227,6 +227,9 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 		} else {
 			color = colors[1]
 		}
+	default:
+		err = errors.New("Unknown shield type")
+		return
 	}
 
 	colorRgba, err := getColor(color)
