@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 	"io/ioutil"
+	"encoding/hex"
 	"encoding/json"
+	"crypto/md5"
+	"bytes"
 
 	"github.com/droundy/goopt"
 	"github.com/garyburd/redigo/redis"
@@ -29,11 +32,12 @@ var (
 	staticPath, _ = resourcePaths()
 
 	redisAddress = "localhost:6379"
-	redisExpireTime = "3600"
 	redisVerField = "version"
 	redisDayDownField = "ddownloads"
 	redisWeekDownField = "wdownloads"
 	redisMonDownField = "mdownloads"
+	pypiExpireTime = "3600"
+	droneExpireTime = "300"
 )
 
 func shift(s []string) ([]string, string) {
@@ -107,8 +111,9 @@ func queryPypi(project string, query string) (value string, err error) {
 	if err != nil {
 		return
 	}
+	redisKey := project + "_pypi"
 
-	value, e := redis.String(conn.Do("HGET", project, query))
+	value, e := redis.String(conn.Do("HGET", redisKey, query))
 	if e != nil {
 		resp, e := http.Get(
 			"http://pypi.python.org/pypi/" + project + "/json")
@@ -128,11 +133,11 @@ func queryPypi(project string, query string) (value string, err error) {
 		downloadsMon := formatNum(int(downloadsMap["last_month"].(float64)))
 
 		conn.Send("MULTI")
-		conn.Send("HSET", project, redisVerField, version)
-		conn.Send("HSET", project, redisDayDownField, downloadsDay)
-		conn.Send("HSET", project, redisWeekDownField, downloadsWeek)
-		conn.Send("HSET", project, redisMonDownField, downloadsMon)
-		conn.Send("EXPIRE", project, redisExpireTime)
+		conn.Send("HSET", redisKey, redisVerField, version)
+		conn.Send("HSET", redisKey, redisDayDownField, downloadsDay)
+		conn.Send("HSET", redisKey, redisWeekDownField, downloadsWeek)
+		conn.Send("HSET", redisKey, redisMonDownField, downloadsMon)
+		conn.Send("EXPIRE", redisKey, pypiExpireTime)
 		_, e = conn.Do("EXEC")
 		if e != nil {
 			return value, e
@@ -151,6 +156,106 @@ func queryPypi(project string, query string) (value string, err error) {
 	}
 
 	conn.Close()
+	return
+}
+
+func queryDrone(project string) (status string, err error) {
+	conn, err := redis.Dial("tcp", redisAddress)
+	if err != nil {
+		return
+	}
+	redisKey := project + "_drone"
+
+	status, e := redis.String(conn.Do("GET", redisKey))
+	if e != nil {
+		resp, e := http.Get(
+			"https://drone.io/github.com/" + project + "/status.png")
+		if e != nil {
+			return status, e
+		}
+		defer resp.Body.Close()
+		body, e := ioutil.ReadAll(resp.Body)
+
+		var buffer bytes.Buffer
+		hash := md5.New()
+		buffer.Write(body)
+		buffer.WriteTo(hash)
+		hexHash := hex.EncodeToString(hash.Sum(nil))
+
+		// passing - 0bfc124d002aa2eac36bf8e5c518c438
+		// failing - d8fd5ef8c156955e1c414a752658544a
+		if hexHash == "0bfc124d002aa2eac36bf8e5c518c438" {
+			status = "passing"
+		} else {
+			status = "failing"
+		}
+
+		conn.Send("MULTI")
+		conn.Send("SET", redisKey, status)
+		conn.Send("EXPIRE", redisKey, droneExpireTime)
+		_, e = conn.Do("EXEC")
+		if e != nil {
+			return status, e
+		}
+	}
+
+	conn.Close()
+	return
+}
+
+func parseFileNameDrone(name string) (d Data, err error) {
+	imageName := wsReplacer.Replace(name)
+	imageParts := strings.Split(imageName, "-")
+
+	newParts := []string{}
+	for len(imageParts) > 0 {
+		var head, right string
+		imageParts, head = shift(imageParts)
+
+		// if starts with - append to previous
+		if len(head) == 0 && len(newParts) > 0 {
+			left := ""
+			if len(newParts) > 0 {
+				left = newParts[len(newParts)-1]
+				newParts = newParts[:len(newParts)-1]
+			}
+
+			// trailing -- is going to break color anyways so don't worry
+			imageParts, right = shift(imageParts)
+
+			head = strings.Join([]string{left, right}, "-")
+		}
+
+		newParts = append(newParts, head)
+	}
+
+	if len(newParts) != 4 {
+		err = errors.New("Invalid file name")
+		return
+	}
+
+	if !strings.HasSuffix(newParts[3], ".png") {
+		err = errors.New("Unknown file type")
+		return
+	}
+
+	status, err := queryDrone(newParts[0] + "/" + newParts[1])
+	if err != nil {
+		return
+	}
+	var cp string
+	if status == "passing" {
+		cp = newParts[2]
+	} else {
+		cp = newParts[3][0 : len(newParts[3])-4]
+	}
+
+	c, err := getColor(cp)
+	if err != nil {
+		return
+	}
+
+	d = Data{"build", status, c}
 	return
 }
 
@@ -248,6 +353,8 @@ func buckle(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if parts[2] == "pypi" {
 		d, err = parseFileNamePypi(parts[3])
+	} else if parts[2] == "drone" {
+		d, err = parseFileNameDrone(parts[3])
 	} else {
 		d, err = parseFileName(parts[2])
 	}
@@ -374,11 +481,9 @@ func main() {
 
 	// redis options
 	redisAddressOpt := goopt.String([]string{"-r", "--redis"}, redisAddress, "redis server address")
-	redisExpireTimeOpt := goopt.String([]string{"-e", "--expire"}, redisExpireTime, "redis key expire time in seconds")
 	goopt.Parse(nil)
 
 	redisAddress = *redisAddressOpt
-	redisExpireTime = *redisExpireTimeOpt
 
 	args := goopt.Args
 
