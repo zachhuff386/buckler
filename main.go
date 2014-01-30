@@ -91,6 +91,17 @@ func parseFileName(name string) (d Data, err error) {
 	return
 }
 
+func formatNum(num int) (formated string) {
+	if num >= 1000000 {
+		formated = strconv.FormatFloat(float64(num) / 1000000, 'f', 1, 64) + "M"
+	} else if num >= 1000 {
+		formated = strconv.FormatFloat(float64(num) / 1000, 'f', 1, 64) + "K"
+	} else {
+		formated = strconv.Itoa(num)
+	}
+	return
+}
+
 func queryPypi(project string, query string) (value string, err error) {
 	conn, err := redis.Dial("tcp", redisAddress)
 	if err != nil {
@@ -112,9 +123,9 @@ func queryPypi(project string, query string) (value string, err error) {
 		infoMap := dataMap["info"].(map[string]interface{})
 		downloadsMap := infoMap["downloads"].(map[string]interface{})
 		version := infoMap["version"].(string)
-		downloadsDay := strconv.Itoa(int(downloadsMap["last_day"].(float64)))
-		downloadsWeek := strconv.Itoa(int(downloadsMap["last_week"].(float64)))
-		downloadsMon := strconv.Itoa(int(downloadsMap["last_month"].(float64)))
+		downloadsDay := formatNum(int(downloadsMap["last_day"].(float64)))
+		downloadsWeek := formatNum(int(downloadsMap["last_week"].(float64)))
+		downloadsMon := formatNum(int(downloadsMap["last_month"].(float64)))
 
 		conn.Send("MULTI")
 		conn.Send("HSET", project, redisVerField, version)
