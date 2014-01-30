@@ -166,6 +166,11 @@ func queryDrone(owner string, project string) (status string, err error) {
 }
 
 func praseParts(parts []string) (cache bool, data Data, err error) {
+	if len(parts) < 6 {
+		err = errors.New("Query invalid")
+		return
+	}
+
 	if !strings.HasSuffix(parts[5], ".png") {
 		err = errors.New("Unknown file type")
 		return
