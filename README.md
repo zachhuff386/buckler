@@ -23,6 +23,18 @@ Buckler tries to make creating shields easy. Each shield request is a url that h
 Parts are separated by a hyphen. The request is suffixed by `.png` and prefixed with the Buckler host and API version, likely
 `b.repl.ca/v1/`. Requests will take the form: `http://b.repl.ca/v1/$SUBJECT-$STATUS-$COLOR.png`
 
+# PyPI API
+
+Retrieve pypi project info. Each shield request is a url that has three parts:
+- `project`
+- `query`
+- `colour`
+
+Query can be `ver` for version or `ddl`, `wdl`, `mdl` for day, week and month download counts.
+
+Parts are separated by a hyphen. The request is suffixed by `.png` and prefixed with the Buckler host and API version, likely
+`b.repl.ca/v1/`. Requests will take the form: `http://b.repl.ca/v1/pypi/$PROJECT-$QUERY-$COLOR.png`
+
 ## Examples
 
 - http://b.repl.ca/v1/build-passing-brightgreen.png ⇨ ![](http://b.repl.ca/v1/build-passing-brightgreen.png)
