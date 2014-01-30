@@ -166,14 +166,6 @@ func queryDrone(owner string, project string) (status string, err error) {
 }
 
 func praseParts(parts []string) (cache bool, data Data, err error) {
-	// /v1/text/subject/status/colour.png
-	// /v1/pypi/project/query/colour.png
-	// /v1/pypi/project/version/colour.png
-	// /v1/pypi/project/day_down/colour.png
-	// /v1/pypi/project/week_down/colour.png
-	// /v1/pypi/project/month_down/colour.png
-	// /v1/drone/owner/project/colour-colour.png
-
 	if !strings.HasSuffix(parts[5], ".png") {
 		err = errors.New("Unknown file type")
 		return
