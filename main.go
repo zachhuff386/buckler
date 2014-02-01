@@ -173,7 +173,6 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 		return
 	}
 
-	var pypiValue string
 	var key string
 	var value string
 	shieldType := parts[2]
@@ -203,11 +202,11 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 
 		switch parts[4] {
 		case dayDownQuery:
-			pypiValue += " today"
+			value += " today"
 		case weekDownQuery:
-			pypiValue += " this week"
+			value += " this week"
 		case monthDownQuery:
-			pypiValue += " this month"
+			value += " this month"
 		}
 
 		if parts[4] == verQuery {
