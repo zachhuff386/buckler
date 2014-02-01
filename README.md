@@ -65,7 +65,7 @@ Play around with the simple form on [gitshields.com](http://gitshields.com/)
 # Installing
 
 ```bash
-go get github.com/zachhuff386/buckler
+go get github.com/zachhuff386/git-shields
 ```
 
 Alternatively, `git clone` and `go build` to run from source.

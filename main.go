@@ -21,9 +21,6 @@ import (
 )
 
 var (
-	wsReplacer    = strings.NewReplacer("__", "_", "_", " ")
-	revWsReplacer = strings.NewReplacer(" ", "_", "_", "__", "-", "--")
-
 	// set last modifed to server startup. close enough to release.
 	lastModified    = time.Now()
 	lastModifiedStr = lastModified.UTC().Format(http.TimeFormat)
@@ -272,7 +269,7 @@ func buckle(w http.ResponseWriter, r *http.Request) {
 	makePngShield(w, d)
 }
 
-const basePkg = "github.com/zachhuff386/buckler"
+const basePkg = "github.com/zachhuff386/git-shields"
 
 func index(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(staticPath, "index.html"))
@@ -328,5 +325,5 @@ func main() {
 	http.HandleFunc("/", index)
 
 	log.Println("Listening on port", *port)
-	http.ListenAndServe(*host+":"+strconv.Itoa(*port), nil)
+	http.ListenAndServe(*host + ":" + strconv.Itoa(*port), nil)
 }
