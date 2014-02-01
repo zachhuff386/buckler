@@ -163,19 +163,23 @@
         }
 
         if (shieldType === 'text') {
-          var shieldKey = shield.find('.shield-key').val();
-          var shieldValue = shield.find('.shield-value').val();
+          var shieldKey = shield.find('.shield-key').val() ||
+            'example';
+          var shieldValue = shield.find('.shield-value').val() ||
+            'shield';
           label = shieldKey + ' ' + shieldValue;
           shieldUrl += shieldKey + '/' + shieldValue;
         }
         else if (shieldType === 'pypi') {
-          var shieldProject = shield.find('.shield-project').val();
+          var shieldProject = shield.find('.shield-project').val() ||
+            'setuptools';
           var shieldQuery = shield.find('.shield-query').select2('val');
           label = shieldProject + ' ' + shieldQuery;
           shieldUrl += shieldProject + '/' + shieldQuery;
         }
         else if (shieldType === 'drone') {
-          var shieldDrone = shield.find('.shield-drone').val();
+          var shieldDrone = shield.find('.shield-drone').val() ||
+            'github.com/pritunl/pritunl';
           label = shieldDrone;
           shieldUrl += shieldDrone;
         }
