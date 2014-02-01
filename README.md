@@ -1,23 +1,31 @@
-# ⛨ Buckler ⛨
+# Git Shields
 
-[![Buckler Shield](http://gitshields.com/v2/text/use/buckler/blue.png)](http://buckler.repl.ca)
+[![Git Shields](http://gitshields.com/v2/text/git/shields/blue.png)](http://gitshields.com/)
 [![MIT License](http://gitshields.com/v2/text/license/MIT/red.png)](LICENSE)
 
-Buckler is [Shields](https://github.com/badges/shields) as a Service (ShaaS, or alternatively, Badges as a Service)
-for use in GitHub READMEs, or anywhere else. Use buckler with your favorite continuous integration tool, performance
-monitoring service API, or ridiculous in-joke to surface information.
+Git Shields is a [Shields](https://github.com/badges/shields) service for python projects based on [Buckler](https://github.com/badges/buckler) with support added for drone.io and pypi.
 
 # API
 
-Buckler tries to make creating shields easy. Each shield request is a url that has four parts:
-- `type`
-- `key`
-- `value`
-- `color`
+Each url has three parts the seperated by forward slashes:
 
-Parts are separated by forward slashes. The request is suffixed by `.png` and prefixed with the Buckler host and API version, `gitshields.com/v2/`
+`http://gitshields.com/v2/:shield_type/:shield_parms/:shield_color.png`
 
-Drone shields take two colors seperated by a hyphen for the passing and failing color.
+#### shield type
+
+Can be `text`, `pypi` or `drone`
+
+#### shield params
+
+Shield params are seperated by a forward slash and are different for each type
+
+- `text` ⇨ `:right_text/:left_text`
+- `pypi` ⇨ `:pypi_project/:query_type`
+- `drone` ⇨ `:drone_project_path`
+
+#### sheild color
+
+Color can be one of the predefined colors below or a hex color code, `drone` badges require two colors separated by a hyphen for the build passing and failing color.
 
 ## Examples
 
@@ -43,10 +51,6 @@ Drone shields take two colors seperated by a hyphen for the passing and failing 
 Six digit RGB hexidecimal colour values work as well:
 
 - `804000` - ![](http://gitshields.com/v2/text/colour/brown/804000.png)
-
-### Grey?
-
-Don't worry; `gray` and `lightgray` work too.
 
 ## URL Safe
 
