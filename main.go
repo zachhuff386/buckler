@@ -117,17 +117,16 @@ func queryPypi(project string, query string) (value string, err error) {
 	return
 }
 
-func queryDrone(owner string, project string) (status string, err error) {
+func queryDrone(project []string) (status string, err error) {
 	conn, err := redis.Dial("tcp", redisAddress)
 	if err != nil {
 		return
 	}
-	redisKey := owner + "_" + project + "_drone"
+	redisKey := strings.Join(project, "_") + "_drone"
 
 	status, e := redis.String(conn.Do("GET", redisKey))
 	if e != nil {
-		resp, e := http.Get(
-			"https://drone.io/github.com/" + owner + "/" + project + "/status.png")
+		resp, e := http.Get("https://drone.io/" + strings.Join(project, "/") + "/status.png")
 		if e != nil {
 			return status, e
 		}
@@ -166,33 +165,46 @@ func queryDrone(owner string, project string) (status string, err error) {
 }
 
 func praseParts(parts []string) (cache bool, data Data, err error) {
-	if len(parts) < 6 {
+	parts_len := len(parts)
+	if parts_len < 6 {
 		err = errors.New("Query invalid")
 		return
 	}
 
-	if !strings.HasSuffix(parts[5], ".png") {
+	if !strings.HasSuffix(parts[parts_len - 1], ".png") {
 		err = errors.New("Unknown file type")
 		return
 	}
 
 	var pypiValue string
+	var key string
+	var value string
 	shieldType := parts[2]
-	key := parts[3]
-	value := parts[4]
-	color := parts[5][0:len(parts[5]) - 4]
+	color := parts[parts_len - 1][0:len(parts[parts_len - 1]) - 4]
 	cache = false
 
 	switch shieldType {
 	case "text":
+		if parts_len != 6 {
+			err = errors.New("Query invalid")
+			return
+		}
+
 		cache = true
+		key = parts[3]
+		value = parts[4]
 	case "pypi":
-		pypiValue, err = queryPypi(key, value)
+		if parts_len != 6 {
+			err = errors.New("Query invalid")
+			return
+		}
+
+		value, err = queryPypi(parts[3], parts[4])
 		if err != nil {
 			return
 		}
 
-		switch value {
+		switch parts[4] {
 		case dayDownQuery:
 			pypiValue += " today"
 		case weekDownQuery:
@@ -201,14 +213,13 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 			pypiValue += " this month"
 		}
 
-		if value == verQuery {
+		if parts[4] == verQuery {
 			key = "version"
 		} else {
 			key = "downloads"
 		}
-		value = pypiValue
 	case "drone":
-		value, err = queryDrone(key, value)
+		value, err = queryDrone(parts[3:parts_len - 1])
 		if err != nil {
 			return
 		}
@@ -261,7 +272,7 @@ func buckle(w http.ResponseWriter, r *http.Request) {
 	makePngShield(w, d)
 }
 
-const basePkg = "github.com/badges/buckler"
+const basePkg = "github.com/zachhuff386/buckler"
 
 func index(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(staticPath, "index.html"))
@@ -312,7 +323,7 @@ func main() {
 		*host = ""
 	}
 
-	http.HandleFunc("/v1/", buckle)
+	http.HandleFunc("/v2/", buckle)
 	http.HandleFunc("/favicon.png", favicon)
 	http.HandleFunc("/", index)
 
