@@ -36,6 +36,7 @@ var (
 	dayDownQuery = "day_down"
 	weekDownQuery = "week_down"
 	monthDownQuery = "month_down"
+	redisPool redis.Pool
 )
 
 func invalidRequest(w http.ResponseWriter, r *http.Request) {
@@ -57,10 +58,8 @@ func formatNum(num int) (formated string) {
 }
 
 func queryPypi(project string, query string) (value string, err error) {
-	conn, err := redis.Dial("tcp", redisAddress)
-	if err != nil {
-		return
-	}
+	conn := redisPool.Get()
+	defer conn.Close()
 	redisKey := project + "_pypi"
 
 	value, e := redis.String(conn.Do("HGET", redisKey, query))
@@ -109,16 +108,12 @@ func queryPypi(project string, query string) (value string, err error) {
 			value = downloadsMon
 		}
 	}
-
-	conn.Close()
 	return
 }
 
 func queryDrone(project []string) (status string, err error) {
-	conn, err := redis.Dial("tcp", redisAddress)
-	if err != nil {
-		return
-	}
+	conn := redisPool.Get()
+	defer conn.Close()
 	redisKey := strings.Join(project, "_") + "_drone"
 
 	status, e := redis.String(conn.Do("GET", redisKey))
@@ -156,8 +151,6 @@ func queryDrone(project []string) (status string, err error) {
 			return status, e
 		}
 	}
-
-	conn.Close()
 	return
 }
 
@@ -313,6 +306,22 @@ func main() {
 	goopt.Parse(nil)
 
 	redisAddress = *redisAddressOpt
+
+	redisPool = redis.Pool{
+		MaxIdle: 6,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (conn redis.Conn, err error) {
+			conn, err = redis.Dial("tcp", redisAddress)
+			if err != nil {
+				return nil, err
+			}
+			return
+		},
+		TestOnBorrow: func(conn redis.Conn, connTime time.Time) (err error) {
+			_, err = conn.Do("PING")
+			return
+		},
+	}
 
 	// normalize for http serving
 	if *host == "*" {
