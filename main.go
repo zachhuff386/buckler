@@ -57,9 +57,7 @@ func formatNum(num int) (formated string) {
 	return
 }
 
-func queryPypi(project string, query string) (value string, err error) {
-	conn := redisPool.Get()
-	defer conn.Close()
+func queryPypi(conn redis.Conn, project string, query string) (value string, err error) {
 	redisKey := project + "_pypi"
 
 	value, e := redis.String(conn.Do("HGET", redisKey, query))
@@ -111,9 +109,7 @@ func queryPypi(project string, query string) (value string, err error) {
 	return
 }
 
-func queryDrone(project []string) (status string, err error) {
-	conn := redisPool.Get()
-	defer conn.Close()
+func queryDrone(conn redis.Conn, project []string) (status string, err error) {
 	redisKey := strings.Join(project, "_") + "_drone"
 
 	status, e := redis.String(conn.Do("GET", redisKey))
@@ -154,7 +150,7 @@ func queryDrone(project []string) (status string, err error) {
 	return
 }
 
-func praseParts(parts []string) (cache bool, data Data, err error) {
+func praseParts(conn redis.Conn, parts []string) (cache bool, data Data, err error) {
 	parts_len := len(parts)
 	if parts_len < 6 {
 		err = errors.New("Query invalid")
@@ -188,7 +184,7 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 			return
 		}
 
-		value, err = queryPypi(parts[3], parts[4])
+		value, err = queryPypi(conn, parts[3], parts[4])
 		if err != nil {
 			return
 		}
@@ -208,7 +204,7 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 			key = "downloads"
 		}
 	case "drone":
-		value, err = queryDrone(parts[3:parts_len - 1])
+		value, err = queryDrone(conn, parts[3:parts_len - 1])
 		if err != nil {
 			return
 		}
@@ -239,10 +235,72 @@ func praseParts(parts []string) (cache bool, data Data, err error) {
 	return
 }
 
+func limit(conn redis.Conn, remoteAddr string) (err error) {
+	remoteAddr = remoteAddr[:strings.LastIndex(remoteAddr, ":")]
+	redisKey := "ip_" + remoteAddr
+	redisKeyLong := "ip_" + remoteAddr + "_long"
+
+	count, err := redis.Int(conn.Do("LLEN", redisKeyLong))
+	if err != nil {
+		return
+	} else if count > 100 {
+		err = errors.New("Too many requests")
+		return
+	} else if count == 99 {
+		log.Println("too many requests", remoteAddr)
+		conn.Send("SADD", "dos", remoteAddr)
+	}
+
+	count, err = redis.Int(conn.Do("LLEN", redisKey))
+	if err != nil {
+		return
+	} else if count > 10 {
+		err = errors.New("Too many requests")
+		return
+	}
+
+	redisKeyEx, err := redis.Bool(conn.Do("EXISTS", redisKey))
+	if err != nil {
+		return
+	}
+	redisKeyLongEx, err := redis.Bool(conn.Do("EXISTS", redisKeyLong))
+	if err != nil {
+		return
+	}
+
+	conn.Send("MULTI")
+	if redisKeyEx {
+		conn.Send("RPUSHX", redisKey, "")
+	} else {
+		conn.Send("RPUSH", redisKey, "")
+		conn.Send("EXPIRE", redisKey, 1)
+	}
+	if redisKeyLongEx {
+		conn.Send("RPUSHX", redisKeyLong, "")
+	} else {
+		conn.Send("RPUSH", redisKeyLong, "")
+		conn.Send("EXPIRE", redisKeyLong, 120)
+	}
+	_, err = conn.Do("EXEC")
+	if err != nil {
+		return
+	}
+	return
+}
+
 func buckle(w http.ResponseWriter, r *http.Request) {
+	conn := redisPool.Get()
+	defer conn.Close()
+
+	err := limit(conn, r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "too many requests", 429)
+		return
+	}
+
 	parts := strings.Split(r.URL.Path, "/")
 
-	c, d, err := praseParts(parts)
+	c, d, err := praseParts(conn, parts)
 	if err != nil {
 		invalidRequest(w, r)
 		return
@@ -264,10 +322,28 @@ func buckle(w http.ResponseWriter, r *http.Request) {
 const basePkg = "github.com/zachhuff386/git-shields"
 
 func index(w http.ResponseWriter, r *http.Request) {
+	conn := redisPool.Get()
+	defer conn.Close()
+
+	err := limit(conn, r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "too many requests", 429)
+		return
+	}
+
 	http.ServeFile(w, r, filepath.Join(staticPath, "index.html"))
 }
 
 func favicon(w http.ResponseWriter, r *http.Request) {
+	conn := redisPool.Get()
+	defer conn.Close()
+
+	err := limit(conn, r.RemoteAddr)
+	if err != nil {
+		http.Error(w, "too many requests", 429)
+		return
+	}
+
 	http.ServeFile(w, r, filepath.Join(staticPath, "favicon.png"))
 }
 
