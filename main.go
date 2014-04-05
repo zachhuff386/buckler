@@ -28,7 +28,10 @@ var (
 
 	staticPath, _ = resourcePaths()
 
+	host = "*"
+	port = 8080
 	redisAddress = "localhost:6379"
+	redisPassword = ""
 	pypiExpireTime = "3600"
 	droneExpireTime = "60"
 
@@ -361,35 +364,46 @@ func usage() string {
 
 func main() {
 	hostEnv := os.Getenv("HOST")
-	portEnv := os.Getenv("PORT")
-
-	// default to environment variable values (changes the help string :( )
-	if hostEnv == "" {
-		hostEnv = "*"
+	if hostEnv != "" {
+		host = hostEnv
 	}
 
-	p := 8080
+	portEnv := os.Getenv("PORT")
 	if portEnv != "" {
-		p, _ = strconv.Atoi(portEnv)
+		port, _ = strconv.Atoi(portEnv)
+	}
+
+	redisAddressEnv := os.Getenv("REDIS_ADDR")
+	if redisAddressEnv != "" {
+		redisAddress = redisAddressEnv
+	}
+
+	redisPasswordEnv := os.Getenv("REDIS_PASS")
+	if redisPasswordEnv != "" {
+		redisPassword = redisPasswordEnv
 	}
 
 	goopt.Usage = usage
 
-	// server mode options
-	host := goopt.String([]string{"-h", "--host"}, hostEnv, "host ip address to bind to")
-	port := goopt.Int([]string{"-p", "--port"}, p, "port to listen on")
-	redisAddressOpt := goopt.String([]string{"-r", "--redis"}, redisAddress, "redis server address")
+	host := goopt.String([]string{"-h", "--host"}, host, "host ip address to bind to")
+	port := goopt.Int([]string{"-p", "--port"}, port, "port to listen on")
+	redisAddress := goopt.String([]string{"-r", "--redis"}, redisAddress, "redis server address")
+	redisPassword := goopt.String([]string{"-a", "--redis-pass"}, redisPassword, "redis server password")
 	goopt.Parse(nil)
-
-	redisAddress = *redisAddressOpt
 
 	redisPool = redis.Pool{
 		MaxIdle: 6,
 		IdleTimeout: 240 * time.Second,
 		Dial: func() (conn redis.Conn, err error) {
-			conn, err = redis.Dial("tcp", redisAddress)
+			conn, err = redis.Dial("tcp", *redisAddress)
 			if err != nil {
 				return nil, err
+			}
+			if *redisPassword != "" {
+				if _, err := conn.Do("AUTH", *redisPassword); err != nil {
+					conn.Close()
+					return nil, err
+				}
 			}
 			return
 		},
